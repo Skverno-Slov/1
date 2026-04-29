@@ -1,0 +1,29 @@
+import mysql.connector
+
+# Предполагаем, что подключение 'conn' и 'cursor' уже созданы
+try:
+    # 1. Запрашиваем данные у пользователя
+    book_id = input("Введите код книги (ID): ")
+    new_price = input("Введите новую цену: ")
+
+    # 2. Подготавливаем безопасный SQL-запрос
+    # Используем %s для защиты от SQL-инъекций
+    sql_update = "UPDATE book SET price = %s WHERE id_book = %s"
+    data = (new_price, book_id)
+
+    # 3. Выполняем команду модификации
+    cursor.execute(sql_update, data)
+
+    # 4. ОБЯЗАТЕЛЬНО сохраняем изменения (Transaction Commit)
+    # Без этой команды данные в БД не изменятся!
+    conn.commit()
+
+    print(f"Обновлено строк: {cursor.rowcount}")
+
+    # 5. (Опционально) Проверяем результат выборкой
+    cursor.execute("SELECT * FROM book WHERE id_book = %s", (book_id,))
+    print("Обновленная запись:", cursor.fetchone())
+
+except Exception as e:
+    print(f"Ошибка при обновлении: {e}")
+    conn.rollback() # Откат изменений в случае ошибки
