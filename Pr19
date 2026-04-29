@@ -1,0 +1,32 @@
+import mysql.connector
+from mysql.connector import Error
+
+def check_db_connection(user_login, user_password):
+    try:
+        # 5.3.1 Создаем соединение
+        connection = mysql.connector.connect(
+            host="localhost",
+            user=user_login,
+            password=user_password,
+            database="market_ispp31" # Укажите имя вашей БД
+        )
+
+        if connection.is_connected():
+            # 5.3.2 Создаем курсор (для выполнения запросов)
+            cursor = connection.cursor()
+            
+            # Выводим сообщение об успехе (из текста задания)
+            print(f"Здравствуйте, {user_login}!")
+            
+            # 5.3.3 Закрываем соединение
+            cursor.close()
+            connection.close()
+
+    except Error as e:
+        # 5.3.4 Реализовать перехват исключений
+        print("Ошибка: Неверный логин или пароль, либо БД недоступна.")
+
+# Пример вызова
+login = input("Введите логин: ")
+password = input("Введите пароль: ")
+check_db_connection(login, password)
