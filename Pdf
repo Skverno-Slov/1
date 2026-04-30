@@ -1,0 +1,160 @@
+FunnyDog:
+<?php
+require_once 'connection.php';
+
+$mysqli = new mysqli($host, $user, $password, $database);
+
+if ($mysqli->connect_error) {
+    die("Ошибка подключения: " . $mysqli->connect_error);
+}
+
+// ======= ФИКСИРОВАННЫЙ СПИСОК КАТЕГОРИЙ =======
+$categories = ['Экшн', 'Стратегии', 'RPG', 'Симуляторы', 'Приключения'];
+
+// Фильтр по категории
+$categoryFilter = "";
+$selectedCategory = "";
+if (isset($_GET['category']) && $_GET['category'] !== '') {
+    $selectedCategory = $mysqli->real_escape_string($_GET['category']);
+    $categoryFilter = "WHERE category = '$selectedCategory'";
+}
+
+// ======= ПОСТРАНИЧНЫЙ ВЫВОД =======
+$N = 3; // количество товаров на странице
+
+// Получаем общее количество товаров
+$countSql = "SELECT COUNT(*) as total FROM games " . $categoryFilter;
+$countResult = $mysqli->query($countSql);
+$totalRow = $countResult->fetch_assoc();
+$totalItems = $totalRow['total'];
+$totalPages = ($totalItems > 0) ? ceil($totalItems / $N) : 1;
+
+// Определяем текущую страницу
+$currentPage = 1;
+if (isset($_GET['page']) && is_numeric($_GET['page']) && $_GET['page'] > 0) {
+    $currentPage = (int)$_GET['page'];
+    if ($currentPage > $totalPages && $totalPages > 0) {
+        $currentPage = $totalPages;
+    }
+}
+
+// Вычисляем LIMIT
+$offset = ($currentPage - 1) * $N;
+$limitSql = "LIMIT $offset, $N";
+
+// Основной запрос
+$sql = "SELECT * FROM games $categoryFilter $limitSql";
+$result = $mysqli->query($sql);
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Список игр</title>
+    <style>
+        .pagination {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .pagination a {
+            margin: 0 5px;
+            text-decoration: none;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            display: inline-block;
+        }
+        .pagination a:hover {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .pagination .active {
+            background-color: #4CAF50;
+            color: white;
+            pointer-events: none;
+        }
+        .categories {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+        }
+        .categories a {
+            margin-right: 15px;
+            text-decoration: none;
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            background-color: white;
+            display: inline-block;
+        }
+        .categories .active-cat {
+            background-color: #4CAF50;
+            color: white;
+            pointer-events: none;
+        }
+        .game {
+            margin-bottom: 20px;
+            padding: 10px;
+        }
+        hr {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+
+<!-- МЕНЮ КАТЕГОРИЙ -->
+<div class="categories">
+    <strong>Категории:</strong>
+    <a href="showList.php" class="<?php echo ($selectedCategory == '') ? 'active-cat' : ''; ?>">Все</a>
+    <?php foreach ($categories as $cat): ?>
+        <a href="showList.php?category=<?php echo urlencode($cat); ?>"
+           class="<?php echo ($selectedCategory == $cat) ? 'active-cat' : ''; ?>">
+            <?php echo htmlspecialchars($cat); ?>
+        </a>
+    <?php endforeach; ?>
+</div>
+
+<!-- ВЫВОД ТОВАРОВ -->
+<?php
+if ($result && $result->num_rows > 0) {
+    while ($row = $result->fetch_assoc()) {
+        echo "<div class='game'>";
+        echo "<h3>" . htmlspecialchars($row['name']) . "</h3>";
+        echo "<p>" . htmlspecialchars($row['description']) . "</p>";
+        echo "<p>Цена: " . number_format($row['price'], 2, ',', ' ') . " руб.</p>";
+        if (!empty($row['category'])) {
+            echo "<p><small>Категория: " . htmlspecialchars($row['category']) . "</small></p>";
+        }
+        echo "</div><hr>";
+    }
+} else {
+    echo "Товары не найдены.";
+}
+?>
+
+<!-- ПОСТРАНИЧНАЯ НАВИГАЦИЯ (показывается всегда) -->
+<div class="pagination">
+    <?php 
+    // Гарантированно показываем пагинацию
+    // Если всего страниц 1, всё равно показываем кнопку "1"
+    $displayPages = max($totalPages, 1);
+    
+    for ($i = 1; $i <= $displayPages; $i++): 
+        // Сохраняем параметр категории, если он есть
+        $categoryParam = $selectedCategory ? '&category=' . urlencode($selectedCategory) : '';
+    ?>
+        <a href="showList.php?page=<?php echo $i; ?><?php echo $categoryParam; ?>"
+           class="<?php echo ($i == $currentPage) ? 'active' : ''; ?>">
+            <?php echo $i; ?>
+        </a>
+    <?php endfor; ?>
+    
+    <!-- Отладочная информация (удалить после проверки) -->
+    <span style="margin-left: 20px; font-size: 12px; color: gray;">
+        (Всего товаров: <?php echo $totalItems; ?>, страниц: <?php echo $displayPages; ?>)
+    </span>
+</div>
+
+<?php $mysqli->close(); ?>
+</body>
+</html>
