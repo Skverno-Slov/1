@@ -1,0 +1,59 @@
+using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
+
+public class ChatHub : Hub
+{
+    // 5.3.1 Поля для хранения данных о комнатах и пользователях
+    private static readonly ConcurrentDictionary<string, string> ConnectionToRoom = new();
+    private static readonly ConcurrentDictionary<string, string> ConnectionToUser = new();
+
+    // 5.3.2 Метод для входа в комнату
+    public async Task JoinRoom(string roomName, string userName)
+    {
+        var connectionId = Context.ConnectionId;
+
+        // Сохраняем данные в словари
+        ConnectionToRoom[connectionId] = roomName;
+        ConnectionToUser[connectionId] = userName;
+
+        // Добавляем соединение в группу SignalR по имени комнаты
+        await Groups.AddToGroupAsync(connectionId, roomName);
+
+        // (Опционально) Оповещаем участников комнаты о новом пользователе
+        await Clients.Group(roomName).SendAsync("ReceiveMessage", "Система", $"{userName} вошел в комнату {roomName}.");
+    }
+
+    // 5.3.3 Измененный метод отправки сообщений (отправка только в конкретную комнату)
+    public async Task SendMessage(string message)
+    {
+        var connectionId = Context.ConnectionId;
+
+        // Проверка наличия имени пользователя и комнаты в ConcurrentDictionary
+        if (ConnectionToRoom.TryGetValue(connectionId, out var room) &&
+            ConnectionToUser.TryGetValue(connectionId, out var user))
+        {
+            // Отправка данных клиентам в определенной группе
+            await Clients.Group(room).SendAsync("ReceiveMessage", user, message);
+        }
+    }
+
+    // 5.3.4 Обработка отключения пользователя
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        var connectionId = Context.ConnectionId;
+
+        // Если пользователь был в комнате, удаляем его из группы и словарей
+        if (ConnectionToRoom.TryRemove(connectionId, out var room) &&
+            ConnectionToUser.TryRemove(connectionId, out var user))
+        {
+            // Удаляем из группы SignalR
+            await Groups.RemoveFromGroupAsync(connectionId, room);
+
+            // (Опционально) Оповещаем оставшихся участников комнаты
+            await Clients.Group(room).SendAsync("ReceiveMessage", "Система", $"{user} покинул комнату.");
+        }
+
+        await base.OnDisconnectedAsync(exception);
+    }
+}
+
