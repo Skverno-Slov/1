@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="LabWork27.Client/LabWork27.Client.csproj" />
+  <Project Path="LabWork27.Server/LabWork27.Server.csproj" />
+</Solution>
