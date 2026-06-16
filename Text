@@ -1,59 +1,334 @@
-using Microsoft.AspNetCore.SignalR;
-using System.Collections.Concurrent;
+Шаг 5.1: Создание gRPC-сервисаСоздайте новый проект в Visual Studio или через CLI по шаблону gRPC Service:bashdotnet new grpc -n OrderGrpcService
+Используйте код с осторожностью.5.1.1 Создание proto-файла (order.proto)В папке Protos замените содержимое файла greet.proto или создайте новый файл order.proto:protobufsyntax = "proto3";
 
-public class ChatHub : Hub
-{
-    // 5.3.1 Поля для хранения данных о комнатах и пользователях
-    private static readonly ConcurrentDictionary<string, string> ConnectionToRoom = new();
-    private static readonly ConcurrentDictionary<string, string> ConnectionToUser = new();
+option csharp_namespace = "OrderGrpcService";
 
-    // 5.3.2 Метод для входа в комнату
-    public async Task JoinRoom(string roomName, string userName)
-    {
-        var connectionId = Context.ConnectionId;
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
 
-        // Сохраняем данные в словари
-        ConnectionToRoom[connectionId] = roomName;
-        ConnectionToUser[connectionId] = userName;
+package order;
 
-        // Добавляем соединение в группу SignalR по имени комнаты
-        await Groups.AddToGroupAsync(connectionId, roomName);
-
-        // (Опционально) Оповещаем участников комнаты о новом пользователе
-        await Clients.Group(roomName).SendAsync("ReceiveMessage", "Система", $"{userName} вошел в комнату {roomName}.");
-    }
-
-    // 5.3.3 Измененный метод отправки сообщений (отправка только в конкретную комнату)
-    public async Task SendMessage(string message)
-    {
-        var connectionId = Context.ConnectionId;
-
-        // Проверка наличия имени пользователя и комнаты в ConcurrentDictionary
-        if (ConnectionToRoom.TryGetValue(connectionId, out var room) &&
-            ConnectionToUser.TryGetValue(connectionId, out var user))
-        {
-            // Отправка данных клиентам в определенной группе
-            await Clients.Group(room).SendAsync("ReceiveMessage", user, message);
-        }
-    }
-
-    // 5.3.4 Обработка отключения пользователя
-    public override async Task OnDisconnectedAsync(Exception? exception)
-    {
-        var connectionId = Context.ConnectionId;
-
-        // Если пользователь был в комнате, удаляем его из группы и словарей
-        if (ConnectionToRoom.TryRemove(connectionId, out var room) &&
-            ConnectionToUser.TryRemove(connectionId, out var user))
-        {
-            // Удаляем из группы SignalR
-            await Groups.RemoveFromGroupAsync(connectionId, room);
-
-            // (Опционально) Оповещаем оставшихся участников комнаты
-            await Clients.Group(room).SendAsync("ReceiveMessage", "Система", $"{user} покинул комнату.");
-        }
-
-        await base.OnDisconnectedAsync(exception);
-    }
+service OrderService {
+  rpc CreateOrder (CreateOrderRequest) returns (OrderResponse);
+  rpc GetOrder (GetOrderRequest) returns (OrderResponse);
+  rpc UpdateOrder (UpdateOrderRequest) returns (OrderResponse);
+  rpc DeleteOrder (DeleteOrderRequest) returns (google.protobuf.Empty);
+  rpc ListOrders (google.protobuf.Empty) returns (OrderListResponse);
+  // Метод для шага 5.3
+  rpc FilterOrders (FilterOrdersRequest) returns (OrderListResponse);
 }
 
+message Product {
+  string name = 1;
+  double price = 2;
+}
+
+message OrderResponse {
+  string id = 1;
+  google.protobuf.Timestamp order_date = 2;
+  repeated Product products = 3;
+}
+
+message CreateOrderRequest {
+  repeated Product products = 1;
+}
+
+message GetOrderRequest {
+  string id = 1;
+}
+
+message UpdateOrderRequest {
+  string id = 1;
+  repeated Product products = 2;
+}
+
+message DeleteOrderRequest {
+  string id = 1;
+}
+
+message OrderListResponse {
+  repeated OrderResponse orders = 1;
+}
+
+message FilterOrdersRequest {
+  google.protobuf.Timestamp start_date = 1;
+  double min_price = 2;
+}
+Используйте код с осторожностью.Убедитесь, что в файле .csproj сервиса прописан правильный путь к файле:xml<ItemGroup>
+  <Protobuf Include="Protos\order.proto" GrpcServices="Server" />
+</ItemGroup>
+Используйте код с осторожностью.5.1.2 Реализация класса-сервисаСоздайте класс Services/OrderGrpcServiceImpl.cs. Для демонстрации CRUD используется потокобезопасная коллекция в памяти (ConcurrentDictionary).csharpusing Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
+using System.Collections.Concurrent;
+
+namespace OrderGrpcService.Services;
+
+public class OrderGrpcServiceImpl : OrderService.OrderServiceBase
+{
+    // Временное хранилище заказов в памяти
+    private static readonly ConcurrentDictionary<string, OrderResponse> _orders = new();
+
+    public override Task<OrderResponse> CreateOrder(CreateOrderRequest request, ServerCallContext context)
+    {
+        var newOrder = new OrderResponse
+        {
+            Id = Guid.NewGuid().ToString(),
+            OrderDate = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+        newOrder.Products.AddRange(request.Products);
+
+        _orders[newOrder.Id] = newOrder;
+        return Task.FromResult(newOrder);
+    }
+
+    public override Task<OrderResponse> GetOrder(GetOrderRequest request, ServerCallContext context)
+    {
+        if (_orders.TryGetValue(request.Id, out var order))
+        {
+            return Task.FromResult(order);
+        }
+        throw new RpcException(new Status(StatusCode.NotFound, $"Заказ с ID {request.Id} не найден"));
+    }
+
+    public override Task<OrderResponse> UpdateOrder(UpdateOrderRequest request, ServerCallContext context)
+    {
+        if (!_orders.ContainsKey(request.Id))
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, $"Заказ с ID {request.Id} не найден"));
+        }
+
+        var updatedOrder = new OrderResponse
+        {
+            Id = request.Id,
+            OrderDate = Timestamp.FromDateTime(DateTime.UtcNow) // Обновляем дату изменения заказа
+        };
+        updatedOrder.Products.AddRange(request.Products);
+
+        _orders[request.Id] = updatedOrder;
+        return Task.FromResult(updatedOrder);
+    }
+
+    public override Task<Empty> DeleteOrder(DeleteOrderRequest request, ServerCallContext context)
+    {
+        if (_orders.TryRemove(request.Id, out _))
+        {
+            return Task.FromResult(new Empty());
+        }
+        throw new RpcException(new Status(StatusCode.NotFound, $"Заказ с ID {request.Id} не найден"));
+    }
+
+    public override Task<OrderListResponse> ListOrders(Empty request, ServerCallContext context)
+    {
+        var response = new OrderListResponse();
+        response.Orders.AddRange(_orders.Values);
+        return Task.FromResult(response);
+    }
+
+    // Метод фильтрации для шага 5.3
+    public override Task<OrderListResponse> FilterOrders(FilterOrdersRequest request, ServerCallContext context)
+    {
+        var response = new OrderListResponse();
+        
+        var filtered = _orders.Values.Where(o => 
+            o.OrderDate.ToDateTime() >= request.StartDate.ToDateTime() && 
+            o.Products.Sum(p => p.Price) >= request.MinPrice
+        );
+
+        response.Orders.AddRange(filtered);
+        return Task.FromResult(response);
+    }
+}
+Используйте код с осторожностью.Подключите сервис в файле Program.cs:csharpusing OrderGrpcService.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddGrpc();
+
+var app = builder.Build();
+app.MapGrpcService<OrderGrpcServiceImpl>(); // Подключение сервиса
+app.MapGet("/", () => "gRPC сервис запущен!");
+app.Run();
+Используйте код с осторожностью.Шаг 5.2 & 5.3: Создание gRPC-клиентаСоздайте новое консольное приложение:bashdotnet new console -n OrderGrpcClient
+Используйте код с осторожностью.5.2.1 Подключение NuGet-пакетовПерейдите в папку клиента и установите необходимые зависимости:bashdotnet add package Grpc.Net.Client
+dotnet add package Google.Protobuf
+dotnet add package Grpc.Tools
+Используйте код с осторожностью.5.2.2 Настройка proto-файла для клиентаСоздайте папку Protos внутри клиентского проекта и скопируйте туда созданный ранее файл order.proto.Отредактируйте .csproj файл клиента, чтобы сгенерировать клиентский код (обратите внимание на GrpcServices="Client"):xml<ItemGroup>
+  <Protobuf Include="Protos\order.proto" GrpcServices="Client" />
+</ItemGroup>
+Используйте код с осторожностью.Соберите проект (dotnet build), чтобы сгенерировались необходимые классы.5.2.3 и 5.3 Консольное меню и метод фильтрацииЗамените код в файле Program.cs клиента:csharpusing System;
+using System.Threading.Tasks;
+using Google.Protobuf.WellKnownTypes;
+using Grpc.Net.Client;
+using OrderGrpcService; // Пространство имен из proto option csharp_namespace
+
+namespace OrderGrpcClient;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        // Адрес сервера (проверьте порт в свойствах запуска вашего gRPC-сервиса)
+        using var channel = GrpcChannel.ForAddress("http://localhost:5191");
+        var client = new OrderService.OrderServiceClient(channel);
+
+        while (true)
+        {
+            Console.WriteLine("\n=== УПРАВЛЕНИЕ ЗАКАЗАМИ (gRPC) ===");
+            Console.WriteLine("1. Создать заказ");
+            Console.WriteLine("2. Получить заказ по ID");
+            Console.WriteLine("3. Обновить заказ");
+            Console.WriteLine("4. Удалить заказ");
+            Console.WriteLine("5. Показать все заказы");
+            Console.WriteLine("6. Фильтрация (Дата + Стоимость)"); // Шаг 5.3
+            Console.WriteLine("0. Выход");
+            Console.Write("Выберите действие: ");
+
+            var choice = Console.ReadLine();
+            try
+            {
+                switch (choice)
+                {
+                    case "1":
+                        await CreateOrderAsync(client);
+                        break;
+                    case "2":
+                        await GetOrderAsync(client);
+                        break;
+                    case "3":
+                        await UpdateOrderAsync(client);
+                        break;
+                    case "4":
+                        await DeleteOrderAsync(client);
+                        break;
+                    case "5":
+                        await ListOrdersAsync(client);
+                        break;
+                    case "6":
+                        await FilterOrdersAsync(client);
+                        break;
+                    case "0":
+                        return;
+                    default:
+                        Console.WriteLine("Неверный ввод. Попробуйте еще раз.");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка: {ex.Message}");
+            }
+        }
+    }
+
+    private static async Task CreateOrderAsync(OrderService.OrderServiceClient client)
+    {
+        var request = new CreateOrderRequest();
+        InputProducts(request.Products);
+
+        var response = await client.CreateOrderAsync(request);
+        Console.WriteLine($"[Успех] Заказ создан. ID: {response.Id}, Дата: {response.OrderDate.ToDateTime()}");
+    }
+
+    private static async Task GetOrderAsync(OrderService.OrderServiceClient client)
+    {
+        Console.Write("Введите ID заказа: ");
+        string id = Console.ReadLine();
+
+        var response = await client.GetOrderAsync(new GetOrderRequest { Id = id });
+        PrintOrder(response);
+    }
+
+    private static async Task UpdateOrderAsync(OrderService.OrderServiceClient client)
+    {
+        Console.Write("Введите ID заказа для обновления: ");
+        string id = Console.ReadLine();
+
+        var request = new UpdateOrderRequest { Id = id };
+        InputProducts(request.Products);
+
+        var response = await client.UpdateOrderAsync(request);
+        Console.WriteLine($"[Успех] Заказ {response.Id} обновлен.");
+    }
+
+    private static async Task DeleteOrderAsync(OrderService.OrderServiceClient client)
+    {
+        Console.Write("Введите ID заказа для удаления: ");
+        string id = Console.ReadLine();
+
+        await client.DeleteOrderAsync(new DeleteOrderRequest { Id = id });
+        Console.WriteLine("[Успех] Заказ удален.");
+    }
+
+    private static async Task ListOrdersAsync(OrderService.OrderServiceClient client)
+    {
+        var response = await client.ListOrdersAsync(new Empty());
+        Console.WriteLine($" Всего заказов: {response.Orders.Count}");
+        foreach (var order in response.Orders)
+        {
+            PrintOrder(order);
+        }
+    }
+
+    // Реализация шага 5.3
+    private static async Task FilterOrdersAsync(OrderService.OrderServiceClient client)
+    {
+        Console.Write("Введите начальную дату (ГГГГ-ММ-ДД): ");
+        if (!DateTime.TryParse(Console.ReadLine(), out DateTime startDate))
+        {
+            startDate = DateTime.MinValue;
+        }
+
+        Console.Write("Введите минимальную суммарную стоимость заказа: ");
+        if (!double.TryParse(Console.ReadLine(), out double minPrice))
+        {
+            minPrice = 0;
+        }
+
+        var request = new FilterOrdersRequest
+        {
+            StartDate = Timestamp.FromDateTime(startDate.ToUniversalTime()),
+            MinPrice = minPrice
+        };
+
+        var response = await client.FilterOrdersAsync(request);
+        Console.WriteLine($" Найдено заказов по фильтру: {response.Orders.Count}");
+        foreach (var order in response.Orders)
+        {
+            PrintOrder(order);
+        }
+    }
+
+    private static void InputProducts(Google.Protobuf.Collections.RepeatedField<Product> productsList)
+    {
+        while (true)
+        {
+            Console.Write("Введите название товара (или оставьте пустым для завершения): ");
+            string name = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(name)) break;
+
+            Console.Write("Введите цену товара: ");
+            if (double.TryParse(Console.ReadLine(), out double price))
+            {
+                productsList.Add(new Product { Name = name, Price = price });
+            }
+            else
+            {
+                Console.WriteLine("Некорректная цена. Товар не добавлен.");
+            }
+        }
+    }
+
+    private static void PrintOrder(OrderResponse order)
+    {
+        Console.WriteLine($"--------------------------------------------------");
+        Console.WriteLine($"ID: {order.Id}");
+        Console.WriteLine($"Дата: {order.OrderDate.ToDateTime().ToLocalTime()}");
+        Console.WriteLine("Товары:");
+        double total = 0;
+        foreach (var p in order.Products)
+        {
+            Console.WriteLine($"  - {p.Name}: {p.Price} руб.");
+            total += p.Price;
+        }
+        Console.WriteLine($"Итоговая стоимость: {total} руб.");
+    }
+}
