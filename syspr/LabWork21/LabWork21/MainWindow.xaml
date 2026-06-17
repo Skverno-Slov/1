@@ -1,0 +1,56 @@
+﻿<Window x:Class="LabWork21.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:LabWork21"
+        mc:Ignorable="d"
+        Title="Системный монитор" Height="450" Width="800">
+    <DockPanel>
+        <TabControl x:Name="MainTabControl">
+
+            <TabItem Header="Процессор">
+                <ScrollViewer>
+                    <ListView x:Name="ProcessorList" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Видеокарта">
+                <ScrollViewer>
+                    <ListView x:Name="VideoList" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Материнская плата">
+                <ScrollViewer>
+                    <ListView x:Name="MotherboardList" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Диски">
+                <ScrollViewer>
+                    <ListView x:Name="DiskList" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Операционная система">
+                <ScrollViewer>
+                    <ListView x:Name="OsList" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Сеть">
+                <ScrollViewer>
+                    <ListView x:Name="NetworkList" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Программы">
+                <ScrollViewer>
+                    <ListBox x:Name="ProgramsListBox" Margin="10"/>
+                </ScrollViewer>
+            </TabItem>
+
+        </TabControl>
+    </DockPanel>
+</Window>
