@@ -1,334 +1,257 @@
-Шаг 5.1: Создание gRPC-сервисаСоздайте новый проект в Visual Studio или через CLI по шаблону gRPC Service:bashdotnet new grpc -n OrderGrpcService
-Используйте код с осторожностью.5.1.1 Создание proto-файла (order.proto)В папке Protos замените содержимое файла greet.proto или создайте новый файл order.proto:protobufsyntax = "proto3";
+Вот пошаговое руководство по выполнению всех пунктов задания для Android-приложения на Jetpack Compose с использованием Retrofit.5.1 Настройка приложения5.1.1–5.1.2 Подключение зависимостей и синхронизацияДобавьте в файл build.gradle.kts (модуля app) следующие строки в блок dependencies:kotlin// Retrofit для работы с API
+implementation("com.squareup.retrofit2:retrofit:2.9.0")
+implementation("com.squareup.retrofit2:converter-gson:2.9.0")
 
-option csharp_namespace = "OrderGrpcService";
+// ViewModel для Compose
+implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+Используйте код с осторожностью.Нажмите Sync Now для синхронизации Gradle.5.1.3 Разрешение на InternetОткройте app > manifests > AndroidManifest.xml и добавьте строку перед тегом <application>:xml<uses-permission android:name="android.permission.INTERNET"/>
+Используйте код с осторожностью.5.2 Создание классов данных и интерфейса5.2.1 Создание Data-классовСоздадим модели данных для постов и комментариев (на основе стандартных REST API структур).kotlindata class Post(
+    val id: Int,
+    val title: String,
+    val body: String,
+    val userId: Int
+)
 
-import "google/protobuf/timestamp.proto";
-import "google/protobuf/empty.proto";
+data class Comment(
+    val id: Int,
+    val postId: Int,
+    val name: String,
+    val email: String,
+    val body: String
+)
+Используйте код с осторожностью.5.2.2 и 5.3.1 Создание интерфейса API (ForumApiService)Объединяем функции получения, фильтрации и отправки данных (из пунктов 5.2, 5.3, 5.4):kotlinimport retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
+import retrofit2.http.Query
 
-package order;
+interface ForumApiService {
+    // 5.2.2 Получение всех постов
+    @GET("posts")
+    suspend fun getPosts(): List<Post>
 
-service OrderService {
-  rpc CreateOrder (CreateOrderRequest) returns (OrderResponse);
-  rpc GetOrder (GetOrderRequest) returns (OrderResponse);
-  rpc UpdateOrder (UpdateOrderRequest) returns (OrderResponse);
-  rpc DeleteOrder (DeleteOrderRequest) returns (google.protobuf.Empty);
-  rpc ListOrders (google.protobuf.Empty) returns (OrderListResponse);
-  // Метод для шага 5.3
-  rpc FilterOrders (FilterOrdersRequest) returns (OrderListResponse);
+    // 5.3.1 Получение комментариев по ID поста (используя Query или Path в зависимости от структуры API)
+    // Если API требует /posts/{postId}/comments, используем @Path:
+    @GET("posts/{postId}/comments")
+    suspend fun getCommentsByPostId(@Path("postId") postId: Int): List<Comment>
+    
+    // Альтернатива, если API использует Query параметры вроде /comments?postId=1:
+    @GET("comments")
+    suspend fun getCommentsByQuery(@Query("postId") postId: Int): List<Comment>
+
+    // 5.4.1 Создание нового поста
+    @POST("posts")
+    suspend fun createPost(@Body post: Post): Post
+
+    // 5.4.3 Создание нового комментария
+    @POST("comments")
+    suspend fun createComment(@Body comment: Comment): Comment
 }
+Используйте код с осторожностью.5.2.3 Создание REST-клиента (ApiClient)kotlinimport retrofit2.Retrofit
+import retrofit2.converter.gson:GsonConverterFactory
 
-message Product {
-  string name = 1;
-  double price = 2;
+object ApiClient {
+    private const val BASE_URL = "https://forumapi.snowowl.ru/"
+
+    val apiService: ForumApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(ForumApiService::class.java)
+    }
 }
+Используйте код с осторожностью.5.2.4 Реализация отображения постов в LazyColumnViewModel для управления состояниемkotlinimport androidx.compose.runtime.mutableStateOf
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 
-message OrderResponse {
-  string id = 1;
-  google.protobuf.Timestamp order_date = 2;
-  repeated Product products = 3;
-}
+class ForumViewModel : ViewModel() {
+    var posts = mutableStateOf<List<Post>>(emptyList())
+    var commentsMap = mutableStateOf<Map<Int, List<Comment>>>(emptyMap()) // Хранение комментариев для каждого поста
 
-message CreateOrderRequest {
-  repeated Product products = 1;
-}
-
-message GetOrderRequest {
-  string id = 1;
-}
-
-message UpdateOrderRequest {
-  string id = 1;
-  repeated Product products = 2;
-}
-
-message DeleteOrderRequest {
-  string id = 1;
-}
-
-message OrderListResponse {
-  repeated OrderResponse orders = 1;
-}
-
-message FilterOrdersRequest {
-  google.protobuf.Timestamp start_date = 1;
-  double min_price = 2;
-}
-Используйте код с осторожностью.Убедитесь, что в файле .csproj сервиса прописан правильный путь к файле:xml<ItemGroup>
-  <Protobuf Include="Protos\order.proto" GrpcServices="Server" />
-</ItemGroup>
-Используйте код с осторожностью.5.1.2 Реализация класса-сервисаСоздайте класс Services/OrderGrpcServiceImpl.cs. Для демонстрации CRUD используется потокобезопасная коллекция в памяти (ConcurrentDictionary).csharpusing Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
-using System.Collections.Concurrent;
-
-namespace OrderGrpcService.Services;
-
-public class OrderGrpcServiceImpl : OrderService.OrderServiceBase
-{
-    // Временное хранилище заказов в памяти
-    private static readonly ConcurrentDictionary<string, OrderResponse> _orders = new();
-
-    public override Task<OrderResponse> CreateOrder(CreateOrderRequest request, ServerCallContext context)
-    {
-        var newOrder = new OrderResponse
-        {
-            Id = Guid.NewGuid().ToString(),
-            OrderDate = Timestamp.FromDateTime(DateTime.UtcNow)
-        };
-        newOrder.Products.AddRange(request.Products);
-
-        _orders[newOrder.Id] = newOrder;
-        return Task.FromResult(newOrder);
+    init {
+        loadPosts()
     }
 
-    public override Task<OrderResponse> GetOrder(GetOrderRequest request, ServerCallContext context)
-    {
-        if (_orders.TryGetValue(request.Id, out var order))
-        {
-            return Task.FromResult(order);
+    // Загрузка постов (5.2.3 / 5.2.4)
+    fun loadPosts() {
+        viewModelScope.launch {
+            try {
+                posts.value = ApiClient.apiService.getPosts()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
-        throw new RpcException(new Status(StatusCode.NotFound, $"Заказ с ID {request.Id} не найден"));
     }
 
-    public override Task<OrderResponse> UpdateOrder(UpdateOrderRequest request, ServerCallContext context)
-    {
-        if (!_orders.ContainsKey(request.Id))
-        {
-            throw new RpcException(new Status(StatusCode.NotFound, $"Заказ с ID {request.Id} не найден"));
+    // Загрузка комментариев для конкретного поста (5.3.2)
+    fun loadCommentsForPost(postId: Int) {
+        viewModelScope.launch {
+            try {
+                val comments = ApiClient.apiService.getCommentsByPostId(postId)
+                commentsMap.value = commentsMap.value + (postId to comments)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
-
-        var updatedOrder = new OrderResponse
-        {
-            Id = request.Id,
-            OrderDate = Timestamp.FromDateTime(DateTime.UtcNow) // Обновляем дату изменения заказа
-        };
-        updatedOrder.Products.AddRange(request.Products);
-
-        _orders[request.Id] = updatedOrder;
-        return Task.FromResult(updatedOrder);
     }
 
-    public override Task<Empty> DeleteOrder(DeleteOrderRequest request, ServerCallContext context)
-    {
-        if (_orders.TryRemove(request.Id, out _))
-        {
-            return Task.FromResult(new Empty());
+    // Отправка нового поста (5.4.2)
+    fun addNewPost(title: String, body: String, onExpanded: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val newPost = Post(id = 0, title = title, body = body, userId = 1)
+                ApiClient.apiService.createPost(newPost)
+                loadPosts() // Обновляем список
+                onExpanded()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
-        throw new RpcException(new Status(StatusCode.NotFound, $"Заказ с ID {request.Id} не найден"));
     }
 
-    public override Task<OrderListResponse> ListOrders(Empty request, ServerCallContext context)
-    {
-        var response = new OrderListResponse();
-        response.Orders.AddRange(_orders.Values);
-        return Task.FromResult(response);
-    }
-
-    // Метод фильтрации для шага 5.3
-    public override Task<OrderListResponse> FilterOrders(FilterOrdersRequest request, ServerCallContext context)
-    {
-        var response = new OrderListResponse();
-        
-        var filtered = _orders.Values.Where(o => 
-            o.OrderDate.ToDateTime() >= request.StartDate.ToDateTime() && 
-            o.Products.Sum(p => p.Price) >= request.MinPrice
-        );
-
-        response.Orders.AddRange(filtered);
-        return Task.FromResult(response);
+    // Отправка нового комментария (5.4.4)
+    fun addNewComment(postId: Int, name: String, email: String, body: String, onExpanded: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val newComment = Comment(id = 0, postId = postId, name = name, email = email, body = body)
+                ApiClient.apiService.createComment(newComment)
+                loadCommentsForPost(postId) // Обновляем комментарии к посту
+                onExpanded()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 }
-Используйте код с осторожностью.Подключите сервис в файле Program.cs:csharpusing OrderGrpcService.Services;
+Используйте код с осторожностью.Экран со списком постов (LazyColumn) и комментариями (5.2.4, 5.3.2, 5.4.4)kotlinimport androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddGrpc();
+@Composable
+fun PostsScreen(
+    viewModel: ForumViewModel = viewModel(),
+    onNavigateToCreatePost: () -> Unit,
+    onNavigateToCreateComment: (Int) -> Unit
+) {
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = onNavigateToCreatePost) {
+                Text("+ Пост")
+            }
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(viewModel.posts.value) { post ->
+                PostItem(
+                    post = post,
+                    viewModel = viewModel,
+                    onAddCommentClick = { onNavigateToCreateComment(post.id) }
+                )
+            }
+        }
+    }
+}
 
-var app = builder.Build();
-app.MapGrpcService<OrderGrpcServiceImpl>(); // Подключение сервиса
-app.MapGet("/", () => "gRPC сервис запущен!");
-app.Run();
-Используйте код с осторожностью.Шаг 5.2 & 5.3: Создание gRPC-клиентаСоздайте новое консольное приложение:bashdotnet new console -n OrderGrpcClient
-Используйте код с осторожностью.5.2.1 Подключение NuGet-пакетовПерейдите в папку клиента и установите необходимые зависимости:bashdotnet add package Grpc.Net.Client
-dotnet add package Google.Protobuf
-dotnet add package Grpc.Tools
-Используйте код с осторожностью.5.2.2 Настройка proto-файла для клиентаСоздайте папку Protos внутри клиентского проекта и скопируйте туда созданный ранее файл order.proto.Отредактируйте .csproj файл клиента, чтобы сгенерировать клиентский код (обратите внимание на GrpcServices="Client"):xml<ItemGroup>
-  <Protobuf Include="Protos\order.proto" GrpcServices="Client" />
-</ItemGroup>
-Используйте код с осторожностью.Соберите проект (dotnet build), чтобы сгенерировались необходимые классы.5.2.3 и 5.3 Консольное меню и метод фильтрацииЗамените код в файле Program.cs клиента:csharpusing System;
-using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
-using Grpc.Net.Client;
-using OrderGrpcService; // Пространство имен из proto option csharp_namespace
+@Composable
+fun PostItem(
+    post: Post,
+    viewModel: ForumViewModel,
+    onAddCommentClick: () -> Unit
+) {
+    var commentsVisible by remember { mutableStateOf(false) }
+    val comments = viewModel.commentsMap.value[post.id] ?: emptyList()
 
-namespace OrderGrpcClient;
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = post.title, style = MaterialTheme.typography.titleLarge)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = post.body, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
 
-class Program
-{
-    static async Task Main(string[] args)
-    {
-        // Адрес сервера (проверьте порт в свойствах запуска вашего gRPC-сервиса)
-        using var channel = GrpcChannel.ForAddress("http://localhost:5191");
-        var client = new OrderService.OrderServiceClient(channel);
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Кнопка показа комментариев (5.3.2)
+                Button(onClick = {
+                    commentsVisible = !commentsVisible
+                    if (commentsVisible && comments.isEmpty()) {
+                        viewModel.loadCommentsForPost(post.id)
+                    }
+                }) {
+                    Text(if (commentsVisible) "Скрыть коммент." else "Комментарии")
+                }
 
-        while (true)
-        {
-            Console.WriteLine("\n=== УПРАВЛЕНИЕ ЗАКАЗАМИ (gRPC) ===");
-            Console.WriteLine("1. Создать заказ");
-            Console.WriteLine("2. Получить заказ по ID");
-            Console.WriteLine("3. Обновить заказ");
-            Console.WriteLine("4. Удалить заказ");
-            Console.WriteLine("5. Показать все заказы");
-            Console.WriteLine("6. Фильтрация (Дата + Стоимость)"); // Шаг 5.3
-            Console.WriteLine("0. Выход");
-            Console.Write("Выберите действие: ");
-
-            var choice = Console.ReadLine();
-            try
-            {
-                switch (choice)
-                {
-                    case "1":
-                        await CreateOrderAsync(client);
-                        break;
-                    case "2":
-                        await GetOrderAsync(client);
-                        break;
-                    case "3":
-                        await UpdateOrderAsync(client);
-                        break;
-                    case "4":
-                        await DeleteOrderAsync(client);
-                        break;
-                    case "5":
-                        await ListOrdersAsync(client);
-                        break;
-                    case "6":
-                        await FilterOrdersAsync(client);
-                        break;
-                    case "0":
-                        return;
-                    default:
-                        Console.WriteLine("Неверный ввод. Попробуйте еще раз.");
-                        break;
+                // Кнопка добавления комментария (5.4.4)
+                Button(onClick = onAddCommentClick) {
+                    Text("+ Коммент.")
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка: {ex.Message}");
+
+            // Панель с комментариями (5.3.2)
+            if (commentsVisible) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Комментарии:", style = MaterialTheme.typography.titleSmall)
+                comments.forEach { comment ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text(text = "${comment.name} (${comment.email})", style = MaterialTheme.typography.labelLarge)
+                            Text(text = comment.body, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         }
     }
+}
+Используйте код с осторожностью.5.4 Реализация методов POST (Страницы ввода данных)Для переключения между экранами создания постов/комментариев и главным экраном рекомендуется использовать Jetpack Navigation. Ниже представлены интерфейсы страниц создания контента:Страница создания поста (5.4.2)kotlin@Composable
+fun CreatePostScreen(viewModel: ForumViewModel = viewModel(), onBack: () -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf("") }
 
-    private static async Task CreateOrderAsync(OrderService.OrderServiceClient client)
-    {
-        var request = new CreateOrderRequest();
-        InputProducts(request.Products);
-
-        var response = await client.CreateOrderAsync(request);
-        Console.WriteLine($"[Успех] Заказ создан. ID: {response.Id}, Дата: {response.OrderDate.ToDateTime()}");
-    }
-
-    private static async Task GetOrderAsync(OrderService.OrderServiceClient client)
-    {
-        Console.Write("Введите ID заказа: ");
-        string id = Console.ReadLine();
-
-        var response = await client.GetOrderAsync(new GetOrderRequest { Id = id });
-        PrintOrder(response);
-    }
-
-    private static async Task UpdateOrderAsync(OrderService.OrderServiceClient client)
-    {
-        Console.Write("Введите ID заказа для обновления: ");
-        string id = Console.ReadLine();
-
-        var request = new UpdateOrderRequest { Id = id };
-        InputProducts(request.Products);
-
-        var response = await client.UpdateOrderAsync(request);
-        Console.WriteLine($"[Успех] Заказ {response.Id} обновлен.");
-    }
-
-    private static async Task DeleteOrderAsync(OrderService.OrderServiceClient client)
-    {
-        Console.Write("Введите ID заказа для удаления: ");
-        string id = Console.ReadLine();
-
-        await client.DeleteOrderAsync(new DeleteOrderRequest { Id = id });
-        Console.WriteLine("[Успех] Заказ удален.");
-    }
-
-    private static async Task ListOrdersAsync(OrderService.OrderServiceClient client)
-    {
-        var response = await client.ListOrdersAsync(new Empty());
-        Console.WriteLine($" Всего заказов: {response.Orders.Count}");
-        foreach (var order in response.Orders)
-        {
-            PrintOrder(order);
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Новый пост", style = MaterialTheme.typography.headlineMedium)
+        OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Заголовок") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Текст поста") }, modifier = Modifier.fillMaxWidth())
+        Button(
+            onClick = { viewModel.addNewPost(title, body, onBack) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Опубликовать пост")
         }
     }
+}
+Используйте код с осторожностью.Страница создания комментария (5.4.4)kotlin@Composable
+fun CreateCommentScreen(postId: Int, viewModel: ForumViewModel = viewModel(), onBack: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf("") }
 
-    // Реализация шага 5.3
-    private static async Task FilterOrdersAsync(OrderService.OrderServiceClient client)
-    {
-        Console.Write("Введите начальную дату (ГГГГ-ММ-ДД): ");
-        if (!DateTime.TryParse(Console.ReadLine(), out DateTime startDate))
-        {
-            startDate = DateTime.MinValue;
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Новый комментарий к посту №$postId", style = MaterialTheme.typography.headlineMedium)
+        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Имя") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Комментарий") }, modifier = Modifier.fillMaxWidth())
+        Button(
+            onClick = { viewModel.addNewComment(postId, name, email, body, onBack) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Отправить комментарий")
         }
-
-        Console.Write("Введите минимальную суммарную стоимость заказа: ");
-        if (!double.TryParse(Console.ReadLine(), out double minPrice))
-        {
-            minPrice = 0;
-        }
-
-        var request = new FilterOrdersRequest
-        {
-            StartDate = Timestamp.FromDateTime(startDate.ToUniversalTime()),
-            MinPrice = minPrice
-        };
-
-        var response = await client.FilterOrdersAsync(request);
-        Console.WriteLine($" Найдено заказов по фильтру: {response.Orders.Count}");
-        foreach (var order in response.Orders)
-        {
-            PrintOrder(order);
-        }
-    }
-
-    private static void InputProducts(Google.Protobuf.Collections.RepeatedField<Product> productsList)
-    {
-        while (true)
-        {
-            Console.Write("Введите название товара (или оставьте пустым для завершения): ");
-            string name = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(name)) break;
-
-            Console.Write("Введите цену товара: ");
-            if (double.TryParse(Console.ReadLine(), out double price))
-            {
-                productsList.Add(new Product { Name = name, Price = price });
-            }
-            else
-            {
-                Console.WriteLine("Некорректная цена. Товар не добавлен.");
-            }
-        }
-    }
-
-    private static void PrintOrder(OrderResponse order)
-    {
-        Console.WriteLine($"--------------------------------------------------");
-        Console.WriteLine($"ID: {order.Id}");
-        Console.WriteLine($"Дата: {order.OrderDate.ToDateTime().ToLocalTime()}");
-        Console.WriteLine("Товары:");
-        double total = 0;
-        foreach (var p in order.Products)
-        {
-            Console.WriteLine($"  - {p.Name}: {p.Price} руб.");
-            total += p.Price;
-        }
-        Console.WriteLine($"Итоговая стоимость: {total} руб.");
     }
 }
