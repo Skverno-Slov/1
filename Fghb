@@ -1,0 +1,113 @@
+using System;
+using System.IO;
+using System.IO.Compression;
+using System.Threading;
+using System.Threading.Tasks;
+using Cronos;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+public class LogArchiveService : BackgroundService
+{
+    private readonly ILogger<LogArchiveService> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly object _lockObject = new(); // Для синхронизации доступа к файлу логов
+
+    public LogArchiveService(ILogger<LogArchiveService> logger, IConfiguration configuration)
+    {
+        _logger = logger;
+        _configuration = configuration;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Получение параметров из конфигурации
+        string cronExpressionString = _configuration.GetSection("ArchiveSettings")["CronSchedule"];
+        string logFilePath = _configuration.GetSection("ArchiveSettings")["LogFilePath"];
+        string archiveFolder = _configuration.GetSection("ArchiveSettings")["ArchiveFolder"];
+
+        // 5.3.2 Парсинг cron-выражения
+        var cron = CronExpression.Parse(cronExpressionString);
+
+        _logger.LogInformation($"LogArchiveService запущен с расписанием: {cronExpressionString}");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var now = DateTime.UtcNow;
+            // Получаем время следующего запуска (работаем в UTC)
+            var nextUtc = cron.GetNextOccurrence(now);
+
+            if (nextUtc.HasValue)
+            {
+                var delay = nextUtc.Value - now;
+                if (delay.TotalMilliseconds > 0)
+                {
+                    // Ожидаем наступления времени по расписанию cron
+                    await Task.Delay(delay, stoppingToken);
+                }
+
+                // Выполнение архивации
+                try
+                {
+                    ArchiveLogFile(logFilePath, archiveFolder);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Ошибка при архивации: {ex.Message}");
+                }
+            }
+            else
+            {
+                // Если расписание больше не вернет совпадений, засыпаем на минуту
+                await Task.Delay(60000, stoppingToken);
+            }
+        }
+    }
+
+    private void ArchiveLogFile(string logFilePath, string archiveFolder)
+    {
+        lock (_lockObject)
+        {
+            if (!File.Exists(logFilePath))
+            {
+                return;
+            }
+
+            // Форматирование имени согласно yyyy-MM-dd-HH-mm
+            // Важно: в формате .NET 'mm' — это минуты, а 'MM' — месяц!
+            string timestamp = DateTime.Now.ToString("yyyy-MM-dd-HH-mm");
+            Directory.CreateDirectory(archiveFolder);
+            string zipPath = Path.Combine(archiveFolder, $"{timestamp}.zip");
+
+            // Создаем временную копию файла логов для архивации, чтобы избежать конфликтов блокировки
+            string tempFile = logFilePath + ".tmp";
+            
+            try
+            {
+                // Перемещаем/переименовываем исходный файл во временный (атомарная операция)
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+                File.Move(logFilePath, tempFile);
+
+                // Заменяем исходный файл на новый пустой
+                File.WriteAllText(logFilePath, string.Empty);
+
+                // Архивируем временный файл
+                using (ZipArchive archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+                {
+                    archive.CreateEntryFromFile(tempFile, Path.GetFileName(logFilePath));
+                }
+
+                _logger.LogInformation($"Лог успешно архивирован: {zipPath}");
+            }
+            finally
+            {
+                // Удаляем временный файл в любом случае
+                if (File.Exists(tempFile))
+                {
+                    File.Delete(tempFile);
+                }
+            }
+        }
+    }
+}
