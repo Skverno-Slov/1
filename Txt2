@@ -1,0 +1,84 @@
+Чтобы связать все созданные экраны (список постов, создание поста и создание комментария), в MainActivity нужно настроить навигацию с помощью Jetpack Navigation.Для этого сначала убедитесь, что в build.gradle.kts (модуля app) подключена зависимость для навигации в Compose:kotlinimplementation("androidx.navigation:navigation-compose:2.8.5") // или актуальная версия
+Используйте код с осторожностью.Вот готовый код для вашего MainActivity.kt:kotlinpackage com.example.forumapp // Укажите ваш пакет
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            // Накатываем тему вашего приложения (замените на название вашей темы, если нужно)
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavigation()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AppNavigation() {
+    val navController = rememberNavController()
+    // Создаем одну ViewModel на весь граф навигации, чтобы данные не сбрасывались
+    val forumViewModel: ForumViewModel = viewModel()
+
+    NavHost(
+        navController = navController,
+        startDestination = "posts_list" // Стартовый экран — список постов
+    ) {
+        // ЭКРАН 1: Список постов (п. 5.2.4 и 5.3.2)
+        composable("posts_list") {
+            PostsScreen(
+                viewModel = forumViewModel,
+                onNavigateToCreatePost = {
+                    navController.navigate("create_post")
+                },
+                onNavigateToCreateComment = { postId ->
+                    navController.navigate("create_comment/$postId")
+                }
+            )
+        }
+
+        // ЭКРАН 2: Создание нового поста (п. 5.4.2)
+        composable("create_post") {
+            CreatePostScreen(
+                viewModel = forumViewModel,
+                onBack = {
+                    navController.popBackStack() // Возврат на главный экран после сохранения
+                }
+            )
+        }
+
+        // ЭКРАН 3: Создание комментария с передачей ID поста (п. 5.4.4)
+        composable(
+            route = "create_comment/{postId}",
+            arguments = listOf(navArgument("postId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val postId = backStackEntry.arguments?.getInt("postId") ?: 0
+            CreateCommentScreen(
+                postId = postId,
+                viewModel = forumViewModel,
+                onBack = {
+                    navController.popBackStack() // Возврат на главный экран после добавления
+                }
+            )
+        }
+    }
+}
