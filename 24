@@ -1,0 +1,249 @@
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    MainScrollableScreen()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MainScrollableScreen() {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(30.dp)
+    ) {
+        Text(
+            text = "Лабораторная работа: Анимация",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+
+        // --- Раздел 5.1 ---
+        SectionHeader(title = "5.1 Animate*AsState")
+        AnimateAsStateComponent()
+        DividerComponent()
+
+        // --- Раздел 5.2 ---
+        SectionHeader(title = "5.2 Animatable")
+        AnimatableComponent()
+        DividerComponent()
+
+        // --- Раздел 5.3 ---
+        SectionHeader(title = "5.3 UpdateTransition (Нажмите на фото)")
+        UpdateTransitionComponent()
+        DividerComponent()
+
+        // --- Раздел 5.5 ---
+        // Раздел 5.5 (меню) визуально лучше смотрится перед FAB, чтобы не перекрывать его
+        SectionHeader(title = "5.5 AnimatedVisibility")
+        AnimatedVisibilityComponent()
+        DividerComponent()
+
+        // --- Раздел 5.4 ---
+        SectionHeader(title = "5.4 InfiniteTransition")
+        InfiniteTransitionComponent()
+    }
+}
+
+@Composable
+fun SectionHeader(title = String) {
+    Text(
+        text = title,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+fun DividerComponent() {
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 10.dp),
+        thickness = 1.dp,
+        color = Color.LightGray
+    )
+}
+
+// --- КОМПОНЕНТЫ АНИМАЦИЙ ---
+
+@Composable
+fun AnimateAsStateComponent() {
+    var isTargetState by remember { mutableStateOf(false) }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Button(onClick = { isTargetState = !isTargetState }) {
+            Text("Переключить состояния 5.1")
+        }
+
+        // 1. Tween 3s
+        val tweenColor by animateColorAsState(
+            targetValue = if (isTargetState) Color.Red else Color.Blue,
+            animationSpec = tween(durationMillis = 3000), label = ""
+        )
+        Box(modifier = Modifier.size(80.dp).background(tweenColor), contentAlignment = Alignment.Center) {
+            Text("Tween 3s", color = Color.White, fontSize = 12.sp)
+        }
+
+        // 2. Keyframes 10s
+        val keyframesColor by animateColorAsState(
+            targetValue = if (isTargetState) Color.Magenta else Color.Green,
+            animationSpec = keyframes {
+                durationMillis = 10000
+                Color.Yellow at 2500
+                Color.Cyan at 5000
+                Color.Blue at 7500
+            }, label = ""
+        )
+        Box(modifier = Modifier.size(80.dp).background(keyframesColor), contentAlignment = Alignment.Center) {
+            Text("Keyframes 10s", color = Color.White, fontSize = 10.sp)
+        }
+
+        // 3. Repeatable 3 times
+        val repeatableSize by animateDpAsState(
+            targetValue = if (isTargetState) 120.dp else 70.dp,
+            animationSpec = repeatable(
+                iterations = 3,
+                animation = tween(durationMillis = 500),
+                repeatMode = RepeatMode.Reverse
+            ), label = ""
+        )
+        Image(
+            painter = painterResource(id = R.drawable.square_image),
+            contentDescription = "Square Repeatable",
+            modifier = Modifier.size(repeatableSize)
+        )
+
+        // 4. Spring
+        val springSize by animateDpAsState(
+            targetValue = if (isTargetState) 120.dp else 70.dp,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioHighBouncy,
+                stiffness = Spring.StiffnessMedium
+            ), label = ""
+        )
+        Image(
+            painter = painterResource(id = R.drawable.square_image),
+            contentDescription = "Square Spring",
+            modifier = Modifier.size(springSize)
+        )
+
+        // 5. Infinite Repeatable
+        val infiniteColor by animateColorAsState(
+            targetValue = if (isTargetState) Color.DarkGray else Color.LightGray,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1500),
+                repeatMode = RepeatMode.Reverse
+            ), label = ""
+        )
+        Box(modifier = Modifier.size(80.dp).background(infiniteColor), contentAlignment = Alignment.Center) {
+            Text("Infinite State", color = Color.Black, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun AnimatableComponent() {
+    var trigger by remember { mutableStateOf(false) }
+
+    val colorAnim = remember { Animatable(Color.Gray) }
+    val sizeAnim = remember { Animatable(60.dp, Dp.VectorConverter) }
+    val rotateAnim = remember { Animatable(0f) }
+
+    LaunchedEffect(trigger) {
+        colorAnim.animateTo(
+            targetValue = if (trigger) Color.Cyan else Color.Gray,
+            animationSpec = tween(1000)
+        )
+    }
+
+    LaunchedEffect(trigger) {
+        sizeAnim.animateTo(
+            targetValue = if (trigger) 120.dp else 60.dp,
+            animationSpec = repeatable(
+                iterations = 3,
+                animation = tween(400),
+                repeatMode = RepeatMode.Reverse
+            )
+        )
+    }
+
+    LaunchedEffect(trigger) {
+        rotateAnim.animateTo(
+            targetValue = if (trigger) 360f else 0f,
+            animationSpec = tween(durationMillis = 2000)
+        )
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Button(onClick = { trigger = !trigger }) {
+            Text("Запустить Animatable 5.2")
+        }
+
+        Box(modifier = Modifier.size(60.dp).background(colorAnim.value))
+
+        Image(
+            painter = painterResource(id = R.drawable.square_image),
+            contentDescription = "Round Image",
+            modifier = Modifier.size(sizeAnim.value).clip(CircleShape)
+        )
+
+        Image(
+            painter = painterResource(id = R.drawable.square_image),
+            contentDescription = "Rotated Image",
+            modifier = Modifier.size(80.dp).graphicsLayer(rotationZ = rotateAnim.value)
+        )
+    }
+}
+
+enum class ImageState { Original, Expanded }
+
+@Composable
+fun UpdateTransitionComponent() {
+    var currentState by remember { mutableStateOf(ImageState.Original) }
+    val transition = updateTransition(targetState = currentState, label = "ImageTransition")
+
+    val width by transition.animateDp(label = "Width") { state ->
+        if (state == ImageState.Expanded) 250.dp else 100.dp // Немного уменьшил лимиты, чтобы влезало в экран смартфона
+    }
+    val height by transition.animateDp(label = "Height") { state ->
+        if (state == ImageState.Expanded) 500.dp else 200.dp
+    }
+    val rotation by transition.animateFloat(label = "Rotation") { state ->
+        if (state == ImageState.Expanded) 360f else 0f
+    }
+
+    Box(modifier = Modifier.height(510.dp), contentAlignment = Alignment.Center) {
+        Image(
+            painter = painterResource(id = R.drawable.rect_image),
+            contentDescription = "Transition Image",
+            modifier = Modifier
+                .size(width = width, height = height)
+                .graphicsLayer(rotationZ = rotation)
+                .clickable {
+                    currentState = if (currentState == ImageState.Original) {
+                        ImageState.Expanded
+                    } else {
+ImageState.Original}})}}@Composablefun InfiniteTransitionComponent() {val infiniteTransition = rememberInfiniteTransition(label = "InfiniteSize")val fabSize by infiniteTransition.animateDp(initialValue = 56.dp,targetValue = 85.dp,animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1000, easing = LinearEasing),repeatMode = RepeatMode.Reverse),label = "FabSize")Box(modifier = Modifier.fillMaxWidth().height(100.dp),contentAlignment = Alignment.Center) {FloatingActionButton(onClick = { },modifier = Modifier.size(fabSize)) {Icon(imageVector = Icons.Default.Call, contentDescription = "Call Icon")}}}@Composablefun AnimatedVisibilityComponent() {var menuVisible by remember { mutableStateOf(false) }Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {IconButton(onClick = { menuVisible = !menuVisible }) {Icon(imageVector = Icons.Default.Menu, contentDescription = "Burger Menu")}Spacer(modifier = Modifier.height(10.dp))AnimatedVisibility(visible = menuVisible,enter = slideInVertically(animationSpec = tween(500)) + fadeIn(),exit = slideOutVertically(animationSpec = tween(500)) + fadeOut()) {Text("Настройки", modifier = Modifier.padding(8.dp).fillMaxWidth(), fontSize = 18.sp)}AnimatedVisibility(visible = menuVisible,enter = expandHorizontally(animationSpec = tween(700)) + fadeIn(),exit = shrinkHorizontally(animationSpec = tween(700)) + fadeOut()) {Text("Контакты", modifier = Modifier.padding(8.dp).fillMaxWidth(), fontSize = 18.sp)}AnimatedVisibility(visible = menuVisible,enter = scaleIn(animationSpec = tween(600)) + fadeIn(),exit = scaleOut(animationSpec = tween(600)) + fadeOut()) {Text("О программе", modifier = Modifier.padding(8.dp).fillMaxWidth(), fontSize = 18.sp)}}}
