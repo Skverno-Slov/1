@@ -1,0 +1,144 @@
+5.1 Отладка приложений и 5.2 Логирование1. Создание функции деления и логированияДобавьте этот код в ваш проект (например, в отдельный файл MathUtils.kt или внутрь MainActivity.kt):kotlinimport android.util.Log
+
+object MathUtils {
+    private const val TAG = "MathUtils"
+
+    /**
+     * Вычисляет частное двух чисел.
+     * @throws IllegalArgumentException если делитель равен нулю.
+     */
+    fun divide(numerator: Double, denominator: Double): Double {
+        // 5.2.1 Пример использования различных уровней логирования
+        Log.v(TAG, "Вызов функции divide с параметрами: $numerator и $denominator")
+        Log.d(TAG, "Выполнение математической операции деления")
+        Log.i(TAG, "Проверка делителя на равенство нулю")
+
+        if (denominator == 0.0) {
+            // 5.2.2 Логирование ошибки деления на ноль
+            Log.e(TAG, "Ошибка: попытка деления числа $numerator на ноль!")
+            throw IllegalArgumentException("Деление на ноль невозможно")
+        }
+
+        if (denominator < 1.0 && denominator > -1.0) {
+            Log.w(TAG, "Предупреждение: деление на число меньше единицы увеличит результат")
+        }
+
+        return numerator / denominator
+    }
+}
+Используйте код с осторожностью.2. Установка точек останова (Breakpoints)Откройте файл, где вызывается функция MathUtils.divide(10.0, 2.0).Нажмите на серое поле слева от номера строки с вызовом функции. Появится красный кружок (breakpoint на вызове).Откройте файл MathUtils.kt и поставьте еще один брейкпоинт на строке if (denominator == 0.0) (breakpoint внутри функции).3. Запуск отладкиНажмите на пиктограмму с зеленым жуком (Debug 'app') на верхней панели или нажмите Shift + F9.Приложение запустится, дойдет до вызова функции и замрет.В нижней панели Debug вкладка Variables покажет текущее состояние переменных. Нажмите F8 (Step Over), чтобы пройти дальше, или F9 (Resume Program), чтобы переместиться к следующей точке останова внутри функции.5.3 Модульное тестирование (Unit Tests)1. Изучение ExampleUnitTestОткройте файл по пути app/src/test/java/com/example/yourapp/ExampleUnitTest.kt. Там находится шаблон JUnit-теста, проверяющий базовое сложение: assertEquals(4, 2 + 2).2. Добавление тестов для функции деленияЗамените или дополните содержимое файла ExampleUnitTest.kt следующими тестами:kotlinimport org.junit.Test
+import org.junit.Assert.*
+
+class ExampleUnitTest {
+
+    // 5.3.2 Позитивный сценарий
+    @Test
+    fun divide_correctValues_returnsQuotient() {
+        val result = MathUtils.divide(10.0, 2.0)
+        assertEquals(5.0, result, 0.001)
+    }
+
+    // 5.3.2 Негативный сценарий (обработка исключения)
+    @Test
+    fun divide_byZero_throwsIllegalArgumentException() {
+        assertThrows(IllegalArgumentException::class.java) {
+            MathUtils.divide(10.0, 0.0)
+        }
+    }
+}
+Используйте код с осторожностью.3. Выполнение тестовНажмите на зеленый двойной треугольник слева от названия класса class ExampleUnitTest и выберите Run 'ExampleUnitTest'.В панели Run вы увидите зеленые галочки, если тесты пройдены успешно.5.4 Тестирование интерфейса (UI Testing)1. Composable-функция авторизацииДобавьте этот код в MainActivity.kt для создания экрана авторизации:kotlinimport androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LoginScreen() {
+    // Список валидных пользователей (Хранится локально)
+    val allowedUsers = mapOf("admin" to "12345", "user" to "password")
+
+    var login by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var authStatus by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        TextField(
+            value = login,
+            onValueChange = { login = it },
+            label = { Text("Логин") },
+            // Тестовый тег для UI-теста
+            modifier = Modifier.fillMaxWidth().testTag("login_input")
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Пароль") },
+            // Тестовый тег для UI-теста
+            modifier = Modifier.fillMaxWidth().testTag("password_input")
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = {
+                val correctPassword = allowedUsers[login]
+                authStatus = if (correctPassword != null && correctPassword == password) {
+                    "Успешная авторизация"
+                } else {
+                    "Неуспешная авторизация"
+                }
+            },
+            // Тестовый тег для UI-теста
+            modifier = Modifier.fillMaxWidth().testTag("login_button")
+        ) {
+            Text("Войти")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        // Метка для вывода статуса
+        Text(text = authStatus)
+    }
+}
+Используйте код с осторожностью.2. UI-тесты интерфейсаОткройте или создайте файл в папке инструментальных тестов app/src/androidTest/java/com/example/yourapp/LoginScreenTest.kt:kotlinimport androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import org.junit.Rule
+import org.junit.Test
+
+class LoginScreenTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    // 5.4.2 Позитивный UI-тест
+    @Test
+    fun login_withCorrectCredentials_showsSuccessMessage() {
+        composeTestRule.setContent { LoginScreen() }
+
+        // Поиск по тест-тегам и ввод данных
+        composeTestRule.onNodeWithTag("login_input").performTextInput("admin")
+        composeTestRule.onNodeWithTag("password_input").performTextInput("12345")
+        composeTestRule.onNodeWithTag("login_button").performClick()
+
+        // Поиск метки по тексту результата
+        composeTestRule.onNodeWithText("Успешная авторизация").assertExists()
+    }
+
+    // 5.4.2 Негативный UI-тест
+    @Test
+    fun login_withIncorrectCredentials_showsErrorMessage() {
+        composeTestRule.setContent { LoginScreen() }
+
+        composeTestRule.onNodeWithTag("login_input").performTextInput("wrong_user")
+        composeTestRule.onNodeWithTag("password_input").performTextInput("wrong_pass")
+        composeTestRule.onNodeWithTag("login_button").performClick()
+
+        // Поиск метки по тексту результата
+        composeTestRule.onNodeWithText("Неуспешная авторизация").assertExists()
+    }
+}
+Используйте код с осторожностью.Для запуска UI-тестов убедитесь, что подключен эмулятор или реальное устройство, и нажмите кнопку запуска (зеленый треугольник) рядом с class LoginScreenTest.
