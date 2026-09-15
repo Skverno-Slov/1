@@ -1,0 +1,117 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+
+namespace SourceSwitchDemo
+{
+    class Program
+    {
+        // Шаг 2: Создаем SourceSwitch и TraceSource
+        private static readonly SourceSwitch StorageSwitch = new SourceSwitch("StorageSwitch");
+        private static readonly TraceSource Ts = new TraceSource("Storage") { Switch = StorageSwitch };
+
+        // Имитация хранилища данных
+        private static readonly Dictionary<int, string> Database = new Dictionary<int, string>()
+        {
+            { 1, "Первая запись" },
+            { 2, "Вторая запись" }
+        };
+
+        static void Main(string[] args)
+        {
+            // Шаг 2: Настраиваем TextWriterTraceListener для записи в файл storage.log
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "storage.log");
+            
+            // Очищаем старый лог перед запуском теста для наглядности
+            if (File.Exists(logPath)) File.Delete(logPath);
+
+            using (TextWriterTraceListener textListener = new TextWriterTraceListener(logPath))
+            {
+                Ts.Listeners.Add(textListener);
+                Trace.AutoFlush = true; // Устанавливаем AutoFlush для мгновенной записи
+
+                // --- ТЕСТИРОВАНИЕ ---
+                
+                // Шаг 3: Настраиваем уровень Warning
+                Console.WriteLine("=== Запуск с уровнем SourceLevels.Warning ===");
+                StorageSwitch.Level = SourceLevels.Warning;
+                RunBusinessLogic();
+                PrintLogContent(logPath);
+
+                // Шаг 4: Настраиваем уровень Verbose
+                Console.WriteLine("\n=== Запуск с уровнем SourceLevels.Verbose ===");
+                StorageSwitch.Level = SourceLevels.Verbose;
+                RunBusinessLogic();
+                PrintLogContent(logPath);
+
+                // Шаг 5: Настраиваем уровень Off
+                Console.WriteLine("\n=== Запуск с уровнем SourceLevels.Off ===");
+                StorageSwitch.Level = SourceLevels.Off;
+                RunBusinessLogic();
+                PrintLogContent(logPath);
+            }
+        }
+
+        /// <summary>
+        /// Имитация бизнес-логики с логированием разных уровней (Шаг 1)
+        /// </summary>
+        static void RunBusinessLogic()
+        {
+            // 1. Операция загрузки (Успешно)
+            Ts.TraceEvent(TraceEventType.Information, 101, "Загрузка данных: Начало операции.");
+            Ts.TraceEvent(TraceEventType.Verbose, 1001, "Детали загрузки: Запрос ID = 1.");
+            var data = Database[1];
+            Ts.TraceEvent(TraceEventType.Information, 102, $"Загрузка данных: Успешно завершено. Получено: '{data}'.");
+
+            // 2. Операция удаления несуществующей записи (Предупреждение)
+            Ts.TraceEvent(TraceEventType.Information, 201, "Удаление данных: Начало операции.");
+            int missingId = 99;
+            Ts.TraceEvent(TraceEventType.Verbose, 2001, $"Детали удаления: Попытка удалить ID = {missingId}.");
+            if (!Database.ContainsKey(missingId))
+            {
+                Ts.TraceEvent(TraceEventType.Warning, 202, $"Удаление данных: Запись с ID = {missingId} не найдена в хранилище.");
+            }
+            Ts.TraceEvent(TraceEventType.Information, 203, "Удаление данных: Завершено с предупреждением.");
+
+            // 3. Ошибка операции (Исключение)
+            Ts.TraceEvent(TraceEventType.Information, 301, "Сохранение данных: Начало операции.");
+            try
+            {
+                Ts.TraceEvent(TraceEventType.Verbose, 3001, "Детали сохранения: Попытка записи null-объекта.");
+                string nullData = null;
+                // Имитируем падение
+                if (nullData == null) 
+                    throw new ArgumentNullException(nameof(nullData), "Данные не могут быть null.");
+            }
+            catch (Exception ex)
+            {
+                Ts.TraceEvent(TraceEventType.Error, 302, $"Сохранение данных: Критическая ошибка операции. Сообщение: {ex.Message}");
+            }
+            Ts.TraceEvent(TraceEventType.Information, 303, "Сохранение данных: Завершено с ошибкой.");
+        }
+
+        /// <summary>
+        /// Вспомогательный метод для вывода лога в консоль и его очистки между тестами
+        /// </summary>
+        static void PrintLogContent(string path)
+        {
+            Ts.Flush();
+            if (File.Exists(path))
+            {
+                string[] lines = File.ReadAllLines(path);
+                Console.WriteLine($"[Вывод в storage.log] Количество строк: {lines.Length}");
+                foreach (var line in lines)
+                {
+                    Console.WriteLine($"  > {line}");
+                }
+                // Очищаем файл для чистоты следующего эксперимента
+                File.WriteAllText(path, string.Empty);
+            }
+            else
+            {
+                Console.WriteLine("[Вывод в storage.log] Файл пуст или не создан.");
+            }
+        }
+    }
+}
