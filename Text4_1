@@ -1,0 +1,103 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+class TemperatureAnalysis
+{
+    static void Main(string[] args)
+    {
+        // Исходные данные из таблицы задания 5.2
+        double[] datasetA =;
+        double[] datasetB =;
+
+        Console.WriteLine("=== АНАЛИЗ НАБОРА ДАННЫХ A ===");
+        AnalyzeDataset(datasetA);
+
+        Console.WriteLine("\n=== АНАЛИЗ НАБОРА ДАННЫХ B ===");
+        AnalyzeDataset(datasetB);
+    }
+
+    static void AnalyzeDataset(double[] temperatures)
+    {
+        // Вывод исходного набора
+        Console.WriteLine($"Исходные замеры: {string.Join(", ", temperatures)}");
+
+        // --- АЛГОРИТМ 1: Статистическая проверка ---
+        int n = temperatures.Length;
+        double sum = temperatures.Sum();
+        double mu = sum / n; // Среднее арифметическое (μ)
+
+        // Расчет стандартного отклонения (σ)
+        double varianceSum = temperatures.Sum(x => Math.Pow(x - mu, 2));
+        double sigma = Math.Sqrt(varianceSum / n);
+
+        Console.WriteLine($"[Алгоритм 1] Исходное среднее (μ) = {mu:F2}°C, Отклонение (σ) = {sigma:F2}°C");
+
+        List<double> filtered1 = new List<double>();
+        List<string> suspicious1 = new List<string>();
+
+        for (int i = 0; i < temperatures.Length; i++)
+        {
+            double x = temperatures[i];
+            // Если σ = 0, одинаковые значения не считать выбросами
+            if (sigma > 0 && Math.Abs(x - mu) > 2 * sigma)
+            {
+                // Порядковый номер (i + 1), так как замеры идут с интервалом 5 минут
+                suspicious1.Add($"№{i + 1} ({x}°C)");
+            }
+            else
+            {
+                filtered1.Add(x);
+            }
+        }
+
+        // Расчет среднего для оставшихся значений по Алгоритму 1
+        double finalMean1 = filtered1.Count > 0 ? filtered1.Average() : 0;
+        Console.WriteLine($"[Алгоритм 1] Подозрительные выбросы: {(suspicious1.Count > 0 ? string.Join(", ", suspicious1) : "нет")}");
+        Console.WriteLine($"[Алгоритм 1] Среднее после фильтрации = {finalMean1:F2}°C");
+
+
+        // --- АЛГОРИТМ 2: Проверка допустимого диапазона ---
+        const double minAllowed = 15.0;
+        const double maxAllowed = 30.0;
+
+        List<double> filtered2 = new List<double>();
+        List<string> suspicious2 = new List<string>();
+
+        for (int i = 0; i < temperatures.Length; i++)
+        {
+            double x = temperatures[i];
+            if (x < minAllowed || x > maxAllowed)
+            {
+                suspicious2.Add($"№{i + 1} ({x}°C)");
+            }
+            else
+            {
+                filtered2.Add(x);
+            }
+        }
+
+        double finalMean2 = filtered2.Count > 0 ? filtered2.Average() : 0;
+        Console.WriteLine($"[Алгоритм 2] Подозрительные выбросы (вне {minAllowed}-{maxAllowed}°C): {(suspicious2.Count > 0 ? string.Join(", ", suspicious2) : "нет")}");
+        Console.WriteLine($"[Алгоритм 2] Среднее после фильтрации = {finalMean2:F2}°C");
+
+
+        // --- СРАВНЕНИЕ РЕЗУЛЬТАТОВ ---
+        double difference = Math.Abs(finalMean1 - finalMean2);
+        Console.WriteLine($"Разница между алгоритмами: {difference:F2}°C");
+
+        // Если средние значения отличаются более чем на 1°C, вывести сообщение
+        if (difference > 1.0)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("ВНИМАНИЕ: Обнаружено расхождение алгоритмов! В данных присутствуют аномальные выбросы.");
+            Console.ResetColor();
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("Данные стабильны. Существенных расхождений между алгоритмами не обнаружено.");
+            Console.ResetColor();
+        }
+    }
+}
