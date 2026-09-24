@@ -1,0 +1,129 @@
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+
+class Program
+{
+    // Настройки согласно заданию пункту 5.1
+    private const int MaxAttempts = 4;
+    private static readonly TimeSpan TimeoutDuration = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan[] Delays = [TimeSpan.From someiseconds: 500, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)];
+    private static readonly string BaseUrl = "http://localhost:8080";
+
+    private static readonly HttpClient client = new HttpClient { Timeout = TimeoutDuration };
+
+    static async Task Main(string[] args)
+    {
+        // Список сценариев для тестирования
+        string[] scenarios = ["/success", "/temporary", "/timeout", "/unavailable", "/bad-request"];
+
+        foreach (var scenario in scenarios)
+        {
+            Console.WriteLine(new string('=', 60));
+            Console.WriteLine($"Запуск сценария: {scenario}");
+            Console.WriteLine(new string('=', 60));
+
+            // Перед каждым тестом сбрасываем состояние сервера
+            await ResetServerAsync();
+
+            // Выполняем запросы с повторными попытками
+            await ExecuteRequestWithRetryAsync(scenario);
+            
+            Console.WriteLine();
+        }
+    }
+
+    private static async Task ExecuteRequestWithRetryAsync(string path)
+    {
+        int attempt = 0;
+        bool isSuccess = false;
+        string url = BaseUrl + path;
+
+        while (attempt < MaxAttempts && !isSuccess)
+        {
+            attempt++;
+            TimeSpan currentDelay = (attempt - 1 < Delays.Length) ? Delays[attempt - 1] : TimeSpan.Zero;
+            
+            Console.Write($"Попытка #{attempt}: ");
+
+            try
+            {
+                using var response = await client.GetAsync(url);
+                int statusCode = (int)response.StatusCode;
+
+                // При кодах 400, 401, 403, 404 завершать операцию без повторов
+                if (statusCode == 400 || statusCode == 401 || statusCode == 403 || statusCode == 404)
+                {
+                    Console.WriteLine($"Получен код {statusCode}. Критическая ошибка. Повторы остановлены.");
+                    break;
+                }
+
+                // После успешного ответа прекращать попытки
+                if (response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"Успех (HTTP {statusCode})");
+                    isSuccess = true;
+                    break;
+                }
+
+                // Повторять запрос при кодах 500, 502, 503, 504
+                if (statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504)
+                {
+                    Console.WriteLine($"Сбой (HTTP {statusCode}).");
+                    if (attempt < MaxAttempts)
+                    {
+                        Console.WriteLine($"  -> Ожидание {currentDelay.TotalSeconds} сек перед следующей попыткой...");
+                        await Task.Delay(currentDelay);
+                    }
+                }
+                else
+                {
+                    // Любой другой необработанный код
+                    Console.WriteLine($"Неизвестный статус HTTP {statusCode}. Остановка.");
+                    break;
+                }
+            }
+            // Повторять запрос при тайм-ауте
+            catch (TaskCanceledException)
+            {
+                Console.WriteLine("Превышен тайм-аут (Timeout).");
+                if (attempt < MaxAttempts)
+                {
+                    Console.WriteLine($"  -> Ожидание {currentDelay.TotalSeconds} сек перед следующей попыткой...");
+                    await Task.Delay(currentDelay);
+                }
+            }
+            // Повторять запрос при разрыве соединения
+            catch (HttpRequestException ex)
+            {
+                Console.WriteLine($"Ошибка сети / Разрыв соединения: {ex.Message}");
+                if (attempt < MaxAttempts)
+                {
+                    Console.WriteLine($"  -> Ожидание {currentDelay.TotalSeconds} сек перед следующей попыткой...");
+                    await Task.Delay(currentDelay);
+                }
+            }
+        }
+
+        // По завершении выводить итоговый статус и количество выполненных попыток
+        Console.WriteLine(new string('-', 40));
+        Console.WriteLine($"ИТОГ: {(isSuccess ? "УСПЕШНО" : "ОШИБКА")}");
+        Console.WriteLine($"Всего выполнено попыток: {attempt}");
+        Console.WriteLine(new string('-', 40));
+    }
+
+    private static async Task ResetServerAsync()
+    {
+        try
+        {
+            using var resetClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            await resetClient.GetAsync($"{BaseUrl}/reset");
+        }
+        catch
+        {
+            Console.WriteLine("[Предупреждение] Не удалось отправить запрос на /reset. Убедитесь, что TestServer запущен.");
+        }
+    }
+}
