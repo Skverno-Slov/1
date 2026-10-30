@@ -1,0 +1,387 @@
+Лабораторная работа №7.pdf
+PDF
+реши лабу
+Для выполнения лабораторной работы №7 «Разработка адаптируемого ПО» создадим решение, включающее оконное приложение (сервер с поддержкой скриптов и CRUD для событий) и консольное приложение (клиент для отправки команд через Named Pipes).
+Ниже представлена полная реализация всех пунктов задания (5.1–5.5) на языке C# (Windows Forms).
+
+Шаг 1: Подготовка проектов в Visual Studio
+
+1. Создайте решение (Solution).
+2. Добавьте проект оконного приложения: Windows Forms App (.NET 6.0 / 8.0). Назовите его, например, ScriptableApp.
+3. Через NuGet-пакеты установите в этот проект библиотеку:
+Microsoft.CodeAnalysis.CSharp.Scripting
+4. Добавьте в решение второй проект: Console App (.NET 6.0 / 8.0). Назовите его ScriptClient.
+
+Шаг 2: Реализация основного приложения (ScriptableApp)
+
+
+1. Модель данных для событий (EventModel.cs)
+
+Создадим класс события, с которым будет работать пользователь и скрипты (пункты 5.3, 5.4).
+csharp
+using System;
+
+namespace ScriptableApp
+{
+    public class EventModel
+    {
+        public int Id { get; set; }
+        public DateTime DateTime { get; set; }
+        public string Title { get; set; }
+        public string Description { get; set; }
+
+        public override string ToString()
+        {
+            return $"[{Id}] {DateTime:dd.MM.yyyy HH:mm} — {Title}: {Description}";
+        }
+    }
+}
+Используйте код с осторожностью.
+
+2. Класс автоматизации API (Automation.cs)
+
+Содержит методы CRUD для управления событиями и вывод сообщений (пункты 5.1.3, 5.4).
+csharp
+using System;
+using System.Windows.Forms;
+
+namespace ScriptableApp
+{
+    public class Automation
+    {
+        // Метод вывода сообщения (п. 5.1.3)
+        public void Message(string text)
+        {
+            MessageBox.Show(text, "Скрипт автоматизации", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // Методы CRUD для управления событиями через скрипты (п. 5.4)
+        public void CreateEvent(string title, string description, string dateTimeStr)
+        {
+            if (DateTime.TryParse(dateTimeStr, out DateTime dt))
+            {
+                MainForm.EventService.Add(title, description, dt);
+            }
+            else
+            {
+                Message($"Ошибка: Неверный формат даты '{dateTimeStr}'");
+            }
+        }
+
+        public void DeleteEvent(int id)
+        {
+            bool success = MainForm.EventService.Delete(id);
+            if (!success)
+            {
+                Message($"Ошибка: Событие с ID={id} не найдено.");
+            }
+        }
+
+        public void ClearEvents()
+        {
+            MainForm.EventService.Clear();
+        }
+    }
+}
+Используйте код с осторожностью.
+
+3. Сервисный слой для управления событиями (EventService.cs)
+
+Обеспечивает синхронизацию потоков (так как именованные каналы работают в фоновом потоке) и обновление UI.
+csharp
+using System;
+using System.ComponentModel;
+using System.Linq;
+
+namespace ScriptableApp
+{
+    public class EventService
+    {
+        public BindingList<EventModel> Events { get; } = new BindingList<EventModel>();
+        private int _nextId = 1;
+        private readonly ISynchronizeInvoke _syncInvoke;
+
+        public EventService(ISynchronizeInvoke syncInvoke)
+        {
+            _syncInvoke = syncInvoke;
+        }
+
+        public void Add(string title, string description, DateTime dateTime)
+        {
+            ExecuteOnUI(() =>
+            {
+                Events.Add(new EventModel
+                {
+                    Id = _nextId++,
+                    Title = title,
+                    Description = description,
+                    DateTime = dateTime
+                });
+            });
+        }
+
+        public bool Delete(int id)
+        {
+            return (bool)ExecuteOnUI(() =>
+            {
+                var ev = Events.FirstOrDefault(e => e.Id == id);
+                if (ev != null)
+                {
+                    Events.Remove(ev);
+                    return true;
+                }
+                return false;
+            });
+        }
+
+        public void Clear()
+        {
+            ExecuteOnUI(() => Events.Clear());
+        }
+
+        private object ExecuteOnUI(Delegate method)
+        {
+            if (_syncInvoke != null && _syncInvoke.InvokeRequired)
+            {
+                return _syncInvoke.Invoke(method, null);
+            }
+            return method.DynamicInvoke();
+        }
+    }
+}
+Используйте код с осторожностью.
+
+4. Движок выполнения скриптов (ScriptingHost.cs)
+
+Реализует компиляцию C# Scripting и сервер Named Pipes (пункты 5.1.4, 5.1.5, 5.2.1).
+csharp
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.Scripting;
+
+namespace ScriptableApp
+{
+    public class ScriptingHost
+    {
+        private ScriptOptions _scriptOptions; // п. 5.1.5
+
+        public ScriptingHost()
+        {
+            // Инициализация опций скрипта (п. 5.1.5)
+            _scriptOptions = ScriptOptions.Default
+                .WithReferences(AppDomain.CurrentDomain.GetAssemblies())
+                .WithImports("System", "System.Collections.Generic", "System.Linq");
+        }
+
+        // Выполнение кода скрипта (п. 5.1.4)
+        public async Task ExecuteAsync(string code)
+        {
+            try
+            {
+                await CSharpScript.EvaluateAsync(code, _scriptOptions, new Automation());
+            }
+            catch (Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show($"Ошибка выполнения скрипта: {ex.Message}", "Ошибка", 
+                    System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
+            }
+        }
+
+        // Сервер именованного канала (п. 5.2.1)
+        public async Task RunAsync()
+        {
+            while (true)
+            {
+                using (NamedPipeServerStream server = new NamedPipeServerStream("mypipe", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+                {
+                    await server.WaitForConnectionAsync();
+                    await HandleClient(server);
+                }
+            }
+        }
+
+        // Обработка данных от клиента (п. 5.2.1)
+        private async Task HandleClient(NamedPipeServerStream server)
+        {
+            using (var reader = new StreamReader(server, Encoding.UTF8))
+            {
+                string command = await reader.ReadToEndAsync();
+                if (!string.IsNullOrWhiteSpace(command))
+                {
+                    // Выполняем полученную команду как скрипт
+                    await ExecuteAsync(command);
+                }
+            }
+        }
+    }
+}
+Используйте код с осторожностью.
+
+5. Главная форма приложения (MainForm.cs)
+
+Создайте форму через конструктор Visual Studio со следующими элементами управления (пункты 5.1.6, 5.3, 5.5):
+• ListBox (listBoxEvents) — для вывода списка запланированных событий.
+• TextBox (txtScriptInput) c Multiline = true — для ввода кода скрипта.
+• Button (btnExecute) — кнопка «Выполнить».
+• Button (btnLoadFile) — кнопка «Загрузить из файла».
+• Текстовые поля и кнопка для ручного добавления событий (для полноценного CRUD-интерфейса).
+Код формы MainForm.cs:
+csharp
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace ScriptableApp
+{
+    public partial class MainForm : Form
+    {
+        public static EventService EventService { get; private set; }
+        private readonly ScriptingHost _scriptingHost;
+
+        public MainForm()
+        {
+            InitializeComponent();
+            
+            EventService = new EventService(this);
+            _scriptingHost = new ScriptingHost();
+
+            // Привязка данных к ListBox (п. 5.3)
+            listBoxEvents.DataSource = EventService.Events;
+
+            // Запуск Named Pipes сервера в отдельном Task (п. 5.2.2)
+            Task.Run(() => _scriptingHost.RunAsync());
+        }
+
+        // Кнопка выполнения скрипта из текстового поля (п. 5.1.6)
+        private async void btnExecute_Click(object sender, EventArgs e)
+        {
+            string scriptCode = txtScriptInput.Text;
+            if (!string.IsNullOrWhiteSpace(scriptCode))
+            {
+                btnExecute.Enabled = false;
+                await _scriptingHost.ExecuteAsync(scriptCode);
+                btnExecute.Enabled = true;
+            }
+        }
+
+        // Выполнение скрипта из текстового файла (п. 5.5)
+        private async void btnLoadFile_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "Текстовые файлы (*.txt)|*.txt|Файлы скриптов (*.csx)|*.csx|Все файлы (*.*)|*.*";
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        string fileContent = File.ReadAllText(openFileDialog.FileName);
+                        txtScriptInput.Text = fileContent; // Отобразим в поле для наглядности
+                        await _scriptingHost.ExecuteAsync(fileContent);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Не удалось прочитать файл: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        // Ручное добавление события через интерфейс формы (п. 5.3)
+        private void btnAddManual_Click(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(txtTitle.Text))
+            {
+                EventService.Add(txtTitle.Text, txtDescription.Text, dateTimePicker.Value);
+                txtTitle.Clear();
+                txtDescription.Clear();
+            }
+        }
+
+        // Ручное удаление события из интерфейса (п. 5.3)
+        private void btnDeleteManual_Click(object sender, EventArgs e)
+        {
+            if (listBoxEvents.SelectedItem is EventModel selectedEvent)
+            {
+                EventService.Delete(selectedEvent.Id);
+            }
+        }
+    }
+}
+Используйте код с осторожностью.
+
+Шаг 3: Реализация тестового клиента (ScriptClient)
+
+Код для консольного приложения, отправляющего скрипты через Named Pipe (пункт 5.2.3):
+csharp
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+
+namespace ScriptClient
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("=== Клиент управления ПО через скрипты ===");
+            Console.WriteLine("Введите команду для отправки или нажмите Enter для отправки тестового набора.");
+            
+            string input = Console.ReadLine();
+
+            // Если пользователь ничего не ввел, отправляем тестовые CRUD команды
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                input = "CreateEvent(\"Встреча по проекту\", \"Обсуждение архитектуры скриптинга\", \"31.10.2026 15:00\");\n" +
+                        "CreateEvent(\"Сдача лабы №7\", \"Показать рабочий именованный канал\", \"01.11.2026 10:00\");\n" +
+                        "Message(\"События успешно импортированы через Named Pipes!\");";
+            }
+
+            try
+            {
+                using (var pipe = new NamedPipeClientStream(".", "mypipe", PipeDirection.Out))
+                {
+                    Console.WriteLine("Подключение к серверу приложений...");
+                    pipe.Connect(5000); // Таймаут 5 секунд
+                    
+                    using (var writer = new StreamWriter(pipe, Encoding.UTF8))
+                    {
+                        writer.Write(input);
+                        writer.Flush();
+                        Console.WriteLine("Скрипт успешно передан серверу.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Ошибка подключения: {ex.Message}");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine("\nНажмите любую кнопку для выхода...");
+            Console.ReadKey();
+        }
+    }
+}
+Используйте код с осторожностью.
+
+Проверка работоспособности (Сценарии тестирования)
+
+1. Тест встроенного скриптинга (п. 5.1.7):
+Запустите UI-приложение. Введите в текстовое поле:
+Message("Привет мир!");
+Нажмите «Выполнить». На экране появится MessageBox.
+2. Тест автоматизации (п. 5.4):
+Введите в текстовое поле код создания события:
+CreateEvent("Тест", "Описание", "30.10.2026 12:00");
+Нажмите «Выполнить». Событие мгновенно отобразится в компоненте ListBox.
+3. Тест внешнего управления (п. 5.2.4):
+Оставьте UI-приложение запущенным. Запустите консольный клиент ScriptClient. Он автоматически отправит команды создания двух событий и вызовет Message(). Вы увидите, как на форме появились новые записи.
+4. Тест файлов (п. 5.5):
+Создайте на рабочем столе файл script.txt. Напишите в него ClearEvents(); (очистка всех созданных событий). Нажмите в приложении кнопку «Загрузить из файла» и выберите этот документ — список очистится.
